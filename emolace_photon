@@ -1,0 +1,204 @@
+/*
+ * Creation & Computation - Digital Futures, OCAD University
+ * Instructors: Kate Hartman / Nick Puckett
+ * Experiment 5 - Emolace
+ * Group members: Yiyi Shao, Jad Rabbaa, Quinn Rockliff
+ *
+ * RSSI example code: https://community.particle.io/t/photon-wi-fi-signal-strength-indicator-led/22737
+ */
+
+#define REDPIN D2
+#define GREENPIN D3
+#define BLUEPIN D1
+#include "Particle.h"
+
+int value;
+int newvalue;
+int r,g,b;
+int ledState = LOW;
+long lastTimeYouBlinked;  
+
+
+// You pretty much need to use system thread enabled (or manual mode) because otherwise when you go out of range,
+// loop stops running when the cloud connection is lost, and the LED won't update anymore. This isn't very helpful,
+// but enabling the system thread will allow the LED to continue to update.
+// https://docs.particle.io/reference/firmware/photon/#system-thread
+SYSTEM_THREAD(ENABLED);
+
+// Begin RSSIIndicator Class
+// Include this class in your program. You'll probably create a global instantiation of the object, like:
+// RSSIIndicator rssiIndicator(A5);
+// Where A5 is the pin to use for output. See note below about which pins can be used; they must be PWM compatible.
+//
+// Also make sure you call the object's setup and loop methods out of your setup and loop.
+class RSSIIndicator {
+public:
+	const unsigned long showFullBrightnessMs = 250;
+	const unsigned long checkPeriodMs = 1000;
+	enum RSSIIndicatorState { RSSIINDICATORSTATE_CHECK, RSSIINDICATORSTATE_WAIT, RSSIINDICATORSTATE_BRIGHT };
+	RSSIIndicator(int pin);
+	virtual ~RSSIIndicator();
+	void setup();
+	void loop();
+
+private:
+	int pin;
+	enum RSSIIndicatorState state = RSSIINDICATORSTATE_CHECK;
+	unsigned long stateTime = 0 - checkPeriodMs;
+};
+
+RSSIIndicator::RSSIIndicator(int pin) : pin(pin) {
+}
+
+RSSIIndicator::~RSSIIndicator() {
+}
+
+void RSSIIndicator::setup() {
+	pinMode(pin, OUTPUT);
+}
+
+void RSSIIndicator::loop() {
+	switch(state) {
+	case RSSIINDICATORSTATE_CHECK:
+		// This state checks the WiFi signal strength and sets the LED brightness appropriately
+		stateTime = millis();
+		state = RSSIINDICATORSTATE_WAIT;
+
+		{
+			// WiFi.RSSI() returns:
+			// -127 (weak) to -1dB (strong)
+			// or positive values for error codes
+			// In practice, I've found that I never get close to -127 before losing the connection
+			// so I adjusted this so -65 = min, -20 = max
+			int rssi = WiFi.RSSI();
+			if (rssi < 0) {
+			    value = 90 + rssi;
+			    newvalue = map(value, 10, 60, 0, 10);
+			}
+		}
+		break;
+
+	case RSSIINDICATORSTATE_WAIT:
+		// This waits to amount of time between checks (default: 10 seconds)
+		if (millis() - stateTime >= checkPeriodMs) {
+			stateTime = millis();
+			if (showFullBrightnessMs > 0) {
+				state = RSSIINDICATORSTATE_BRIGHT;
+			//	analogWrite(pin, 255);
+			}
+			else {
+				// Set showFullBrightnessMs to 0 to not flash at full brightness before checking
+				state = RSSIINDICATORSTATE_CHECK;
+			}
+		}
+		break;
+
+	case RSSIINDICATORSTATE_BRIGHT:
+		// Since it's hard to judge how bright the LED is without something to compare it with, and
+		// also to provide an indication that it's actually doing something, briefly flash the LED
+		// at full brightness before checking signal strength again. The default is to do it for
+		// 250 milliseconds, which seems about right .
+		if (millis() - stateTime >= showFullBrightnessMs) {
+			stateTime = millis();
+			state = RSSIINDICATORSTATE_CHECK;
+		}
+		break;
+	}
+}
+
+// End RSSIIndicator Class
+
+// Create a global RSSIIndicator object and specify the pin the LED is connected to.
+// Only PWM compatible pins may be used:
+// On the Photon and Electron, this function works on pins D0, D1, D2, D3, A4, A5, WKP, RX and TX with a caveat:
+// PWM timer peripheral is duplicated on two pins (A5/D2) and (A4/D3) for 7 total independent PWM outputs.
+// For example: PWM may be used on A5 while D2 is used as a GPIO, or D2 as a PWM while A5 is used as an analog input.
+// However A5 and D2 cannot be used as independently controlled PWM outputs at the same time.
+// https://docs.particle.io/reference/firmware/photon/#analogwrite-pwm-
+RSSIIndicator rssiIndicator(A5);
+
+void setup() {
+pinMode(REDPIN, OUTPUT);
+pinMode(GREENPIN, OUTPUT);
+pinMode(BLUEPIN, OUTPUT);
+Particle.subscribe("EmoLace", eventData);// suscribe to the event that published from IFTTT 
+rssiIndicator.setup();
+}
+
+void loop() {
+rssiIndicator.loop();
+blinkLed();
+//Serial.println(newvalue); //debugging for wifi signal
+}
+
+void eventData(const char *name, const char *data) {
+    String emotions = String(data);
+    int value = emotions.toInt();
+    //The rgb value is not working with the led strip we have, it seems to be reversed, so we have to adjust the value to the right color
+    /************Happy************/
+     if (value==1){
+      r=175;
+      g=255;
+      b=175;
+ // purple (80,0,80)
+
+    }
+    /************Sad************/
+    if (value==2){
+        r=255;
+        g=255;
+        b=0;
+// blue (0, 0, 255)
+
+    }
+    /************Mad************/
+    if (value==3){
+        r=0;
+        g=255;
+        b=255;
+ // red (255, 0, 0)
+
+    }
+    /************Scared************/
+    if (value==4){
+        r=0;
+        g=0;
+        b=0;
+// white(255, 255, 255)
+
+    }
+    /************Eww************/
+    if (value==5){
+        r=255;
+        g=0;
+        b=255;
+// green(0, 255, 0)
+    }
+}
+
+void setColor(int red, int green, int blue)
+{
+  #ifdef COMMON_ANODE
+    red = 255 - red;
+    green = 255 - green;
+    blue = 255 - blue;
+  #endif
+  analogWrite(REDPIN, red);
+  analogWrite(GREENPIN, green);
+  analogWrite(BLUEPIN, blue);  
+}
+
+void blinkLed(){
+    //led blinks in a speed depending on the strenth of wifi signal
+    if (millis() - lastTimeYouBlinked >= (6-newvalue)*400) {
+    if (ledState == LOW) {
+      setColor(255,255,255);
+      ledState = HIGH;
+    } else {
+      setColor(r,g,b);
+      ledState = LOW;
+    }
+    lastTimeYouBlinked = millis();
+  }
+}
+
